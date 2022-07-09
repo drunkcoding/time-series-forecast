@@ -82,7 +82,7 @@ for pair, df in tqdm(df_dict.items()):
 
     plt.show()
 
-    model = ARIMA(df.y, order=(1,1,1))
+    model = ARIMA(df.y.fillna(0), order=(1,1,1))
     model_fit = model.fit()
     print(model_fit.summary())
 
