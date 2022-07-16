@@ -52,6 +52,8 @@ class DataParser:
         # node_pairs = df.columns
         df['timestamps'] = timestamps
 
+        df = df.sort_values(by=['timestamps'], ignore_index=True) 
+
         return df
 
 
