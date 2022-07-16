@@ -1,19 +1,13 @@
 import os
-import numpy as np
-from sklearn.model_selection import train_test_split
-from prophet import Prophet
-import matplotlib.pyplot as plt
-import pandas as pd
-from tqdm import tqdm
 
-from forecast.data.prophet import ProphetDataParser, MultivariateDataParser
+from forecast.data.prophet import MultivariateDataParser
 
 # folder = "directed-abilene-zhang-5min-over-6months-ALL"
 folder = "directed-geant-uhlig-15min-over-4months-ALL"
 
 parser = MultivariateDataParser()
 df = parser.format_sndlib_xml(folder)
-df.to_csv(os.path.join("datasets", folder, f"all.csv"), index=False)
+df.to_csv(os.path.join(folder, f"multivariate.csv"), index=False)
 
 # parser = ProphetDataParser()
 # df_dict = parser.format_sndlib_xml(folder)

@@ -262,9 +262,9 @@ class ModelArguments:
     pred_len: int = field(default=24, metadata={"help": "prediction sequence length"})
 
     # Informer decoder input: concat[start token series(label_len), zero padding series(pred_len)]
-    enc_in: int = field(default=7, metadata={"help": "encoder input size"})
-    dec_in: int = field(default=7, metadata={"help": "decoder input size"})
-    c_out: int = field(default=7, metadata={"help": "output size"})
+    enc_in: int = field(default=1, metadata={"help": "encoder input size"})
+    dec_in: int = field(default=1, metadata={"help": "decoder input size"})
+    c_out: int = field(default=1, metadata={"help": "output size"})
     d_model: int = field(default=512, metadata={"help": "dimension of model"})
     n_heads: int = field(default=8, metadata={"help": "num of heads"})
     e_layers: int = field(default=2, metadata={"help": "num of encoder layers"})
@@ -273,6 +273,7 @@ class ModelArguments:
     d_ff: int = field(default=2048, metadata={"help": "dimension of fcn"})
     factor: int = field(default=5, metadata={"help": "probsparse attn factor"})
     padding: int = field(default=0, metadata={"help": "padding type"})
+    moving_avg: int = field(default=25, metadata={"help": "window size of moving average"})
     d_layers: int = field(default=1, metadata={"help": "num of decoder layers"})
     distil: bool = field(default=True, metadata={"help": "whether to use distilling in encoder, using this argument means not using distilling"})
     dropout: float = field(default=0.05, metadata={"help": "dropout"})
@@ -290,12 +291,14 @@ class ModelArguments:
     patience: int = field(default=3, metadata={"help": "early stopping patience"})
     learning_rate: float = field(default=0.0001, metadata={"help": "optimizer learning rate"})
 
-    des: str = field(default="test" metadata={"help": "exp description"})
-    loss: str = field(default="mse" metadata={"help": "loss function"})
-    lradj: str = field(default="type1" metadata={"help": "adjust learning rate"})
+    des: str = field(default="test", metadata={"help": "exp description"})
+    loss: str = field(default="mse", metadata={"help": "loss function"})
+    lradj: str = field(default="type1", metadata={"help": "adjust learning rate"})
+    freq: str = field(default="h", metadata={"help": "freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h"})
 
     use_amp: bool = field(default=False, metadata={"help": "whether to predict unseen future data"})
     inverse: bool = field(default=False, metadata={"help": "inverse output data"})
+    output_attention: bool = field(default=False, metadata={"help": "whether to output attention in encoder"})
 
 
 # parser.add_argument(
