@@ -254,6 +254,7 @@ class HfArgumentParser(ArgumentParser):
 @dataclass
 class DataArguments:
     data_path: str = field(metadata={"help":"full path to dataset csv"})
+    output_folder: str = field(metadata={"help":"full path to dataset csv"})
 
 @dataclass
 class ModelArguments:
@@ -294,7 +295,8 @@ class ModelArguments:
     des: str = field(default="test", metadata={"help": "exp description"})
     loss: str = field(default="mse", metadata={"help": "loss function"})
     lradj: str = field(default="type1", metadata={"help": "adjust learning rate"})
-    freq: str = field(default="h", metadata={"help": "freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h"})
+    freq: str = field(default="t", metadata={"help": "freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h"})
+    features: str = field(default="M", metadata={"help": "forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate"})
 
     use_amp: bool = field(default=False, metadata={"help": "whether to predict unseen future data"})
     inverse: bool = field(default=False, metadata={"help": "inverse output data"})

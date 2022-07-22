@@ -167,7 +167,7 @@ class SNDLibDataset(SNDLibDatasetBase):
 
         df_stamp = self.df_raw[["date"]][border1:border2]
         df_stamp["date"] = pd.to_datetime(df_stamp.date)
-        data_stamp = time_features(df_stamp, timeenc=0, freq='M')
+        data_stamp = time_features(df_stamp, timeenc=0, freq='t')
 
         self.records = {}
         for col in self.cols_data:
@@ -216,11 +216,14 @@ class SNDLibDataset(SNDLibDatasetBase):
         seq_x_mark = data_stamp[s_begin:s_end]
         seq_y_mark = data_stamp[r_begin:r_end]
 
+        # print(seq_x.shape, seq_y.shape, seq_x_mark.shape, seq_y_mark.shape)
+        # print(index, s_begin, s_end, r_begin, r_end)
+
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
     def __len__(self):
         data_x = self.records[self.record_keys[0]]['data_x']
-        return (len(data_x) - self.seq_len - self.pred_len + 1) * len(self.record_keys)
+        return len(data_x) - self.seq_len - self.pred_len + 1
 
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
