@@ -56,7 +56,7 @@ def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
     data_scaled = sc.fit_transform(data)
 
     model = auto_arima(data_scaled, X=train_X)
-    print(model.summary())
+    # print(model.summary())
     f_p, c_p = model.predict(predict_len, X=test_X, return_conf_int=True)
     f_pi, c_pi = model.predict_in_sample(X=train_X, return_conf_int=True)
 
@@ -76,10 +76,10 @@ def prepare_model(i, train_data, test_data, features: str):
         if features == "S"
         else test_data[:, [k for k in range(test_data.shape[1]) if i != k]]
     )
-    train_data = train_data[:, i]
+    # train_data = train_data[:, i]
 
-    result_real = fit_predict_model(train_data, len(test_data), train_X, test_X)
-    result_oracle = fit_predict_model(test_data, len(test_data), test_X, test_X)
+    result_real = fit_predict_model(train_data[:, i], len(test_data), train_X, test_X)
+    result_oracle = fit_predict_model(test_data[:, i], len(test_data), test_X, test_X)
 
     return (
         result_real[0].tolist(),
@@ -98,6 +98,8 @@ if __name__ == "__main__":
     df = parser.parse_sndlib_xml(args.folder)
     df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
 
+    df = df.loc[:100]
+
     df_len = len(df.index.values)
     train_len = int(df_len * 0.6)
 
@@ -108,6 +110,8 @@ if __name__ == "__main__":
 
     columns = list(df.columns)
     columns.remove("timestamps")
+
+    columns = columns[:2]
 
     results = pool.map(
         partial(
