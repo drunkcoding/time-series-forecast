@@ -39,6 +39,7 @@ class ModelConfig:
             "help": "forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate"
         },
     )
+    debug: bool = field(default=False)
 
     def __post_init__(self):
         try:
@@ -103,7 +104,8 @@ if __name__ == "__main__":
     df = parser.parse_sndlib_xml(args.folder)
     df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
 
-    df = df.loc[:100]
+    if args.debug:
+        df = df.loc[:100]
 
     df_len = len(df.index.values)
     train_len = int(df_len * 0.6)
@@ -116,7 +118,8 @@ if __name__ == "__main__":
     columns = list(df.columns)
     columns.remove("timestamps")
 
-    columns = columns[:2]
+    if args.debug:
+        columns = columns[:2]
 
     results = pool.map(
         partial(
