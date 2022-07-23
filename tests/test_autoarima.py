@@ -64,7 +64,7 @@ def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
 
 
 def prepare_model(i, train_data, test_data, features: str):
-    os.sched_setaffinity(0, {i % mp.cpu_count()})
+    os.sched_setaffinity(0, {i % (mp.cpu_count() - 1)})
 
     train_X = (
         None
@@ -89,7 +89,7 @@ def prepare_model(i, train_data, test_data, features: str):
     )
 
 if __name__ == "__main__":
-    pool = mp.Pool(mp.cpu_count())
+    pool = mp.Pool(mp.cpu_count() - 1)
 
     parser = HfArgumentParser(ModelConfig)
     args = parser.parse_args_into_dataclasses()[0]
