@@ -60,6 +60,11 @@ def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
     f_p, c_p = model.predict(predict_len, X=test_X, return_conf_int=True)
     f_pi, c_pi = model.predict_in_sample(X=train_X, return_conf_int=True)
 
+    f_p = sc.inverse_transform(fp)
+    f_pi = sc.inverse_transform(f_pi)
+    c_p = sc.inverse_transform(c_p)
+    c_pi = sc.inverse_transform(c_pi)
+
     return f_p, c_p, f_pi, c_pi
 
 
