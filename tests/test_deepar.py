@@ -140,9 +140,12 @@ def prepare_data(data, times, save_path, save_name, train):
     windows_per_series = np.full((num_series), (time_len - input_size) // stride_size)
 
     # if train: windows_per_series -= (data_start+stride_size-1) // stride_size
+    # print(data.shape, times.shape)
 
     total_windows = np.sum(windows_per_series)
     covariates = gen_covariates(times)
+    # print(covariates)
+    # print(times)
     x_input = np.zeros(
         (total_windows, window_size, 1 + num_covariates + 1), dtype="float32"
     )
@@ -223,6 +226,7 @@ def train_loop(train_loader, test_loader, params, tag:str):
                 mu, sigma, hidden, cell = model(
                     train_batch[t].unsqueeze_(0).clone(), idx, hidden, cell
                 )
+                # print(train_batch[t].unsqueeze_(0))
                 loss += loss_fn(mu, sigma, labels_batch[t])
 
             loss.backward()
@@ -230,7 +234,7 @@ def train_loop(train_loader, test_loader, params, tag:str):
             loss = loss.item() / params.train_window  # loss per timestep
         # loss_epoch[i] = loss
     torch.save(model.state_dict(), os.path.join(args.checkpoint, f"model_{tag}.pt"))
-    evaluate(model, loss_fn, test_loader, params, None)
+    return evaluate(model, loss_fn, test_loader, params, None)
     # if i == 0:
     #     print(f'train_loss: {loss}')
 
@@ -334,8 +338,17 @@ def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
 parser = DataParser()
 df = parser.parse_sndlib_xml(args.folder)
 df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
-df = df.set_index("timestamps")
+if args.debug:
+    df = df.loc[:1000]
 
+
+df_time = pd.to_datetime(df["timestamps"])
+df = df.drop(columns=["timestamps"])
+assert ~df.isnull().values.any()
+
+
+
+# df = df.set_index("timestamps")
 print(df.head())
 
 df_len = len(df.index.values)
@@ -352,12 +365,12 @@ print(training_set.shape, test_set.shape)
 # test_set_scaled = sc.transform(test_set)
 
 prepare_data(
-    training_set, df.index[:train_len], args.folder, args.save_name, train=True
+    training_set, df_time[:train_len], args.folder, args.save_name, train=True
 )
 prepare_data(
-    test_set, df.index[train_len:], args.folder, args.save_name_oracle, train=True
+    test_set, df_time[train_len:], args.folder, args.save_name_oracle, train=True
 )
-prepare_data(test_set, df.index[train_len:], args.folder, args.save_name, train=False)
+prepare_data(test_set, df_time[train_len:], args.folder, args.save_name, train=False)
 
 params = ModelParameters(num_class=dataset.shape[1])
 
