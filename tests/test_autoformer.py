@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 import glob
+import json
 import os
 import re
 import sys
@@ -22,16 +23,24 @@ from tqdm import tqdm
 
 from forecast.utils.timefeatures import time_features
 
+
 @dataclass
 class ModelConfig:
     folder: str = field(metadata={"help": "folder for xml data"})
     checkpoint: str = field(metadata={"help": "path to checkpoints"})
+    fill: str = field(
+        metadata={
+            "help": "fill with values ['zero': fill with zeros, 'ffill': forward fill, 'backfill': backward fill]"
+        }
+    )
+    debug: bool = field(default=False)
 
     def __post_init__(self):
         try:
             os.mkdir(self.checkpoint)
         except:
             pass
+
 
 device = "cuda:0"
 
@@ -44,6 +53,7 @@ class SNDLibDatasetBase(Dataset):
         super().__init__()
 
         path = args.folder
+        self.fill = args.fill
 
         if os.path.isdir(path):
             data_folder = os.path.join(path, "*.xml")
@@ -89,12 +99,20 @@ class SNDLibDatasetBase(Dataset):
                 records[id][-1] = float(value)
 
         self.df_raw = pd.DataFrame(records)
-        self.df_raw = self.df_raw.fillna(0)
+        self.df_raw = (
+            self.df_raw.fillna(0)
+            if self.fill == "zero"
+            else self.df_raw.fillna(method=self.fill)
+        )
         # node_pairs = df.columns
         self.df_raw["date"] = timestamps
+
+        self.data_len = len(self.df_raw.index.values)
+        self.train_len = train_len = int(self.data_len * 0.6)
+        self.test_len = self.data_len - self.train_len
         # self.df_raw = self.df_raw.fillna(0)
 
-    def save_data(self, tag:str):
+    def save_data(self, tag: str):
         path = os.path.dirname(self.paths[0])
         filepath = os.path.join(path, f"{tag}.csv")
         self.df_raw.to_csv(filepath, index=False)
@@ -124,13 +142,18 @@ class SNDLibDataset(SNDLibDatasetBase):
 
         border1s = [
             0,
-            12 * 30 * 24 - self.seq_len,
-            12 * 30 * 24 + 4 * 30 * 24 - self.seq_len,
+            0,
+            self.train_len
+            # 12 * 30 * 24 - self.seq_len,
+            # 12 * 30 * 24 + 4 * 30 * 24 - self.seq_len,
         ]
         border2s = [
-            12 * 30 * 24,
-            12 * 30 * 24 + 4 * 30 * 24,
-            12 * 30 * 24 + 8 * 30 * 24,
+            # 12 * 30 * 24,
+            self.train_len,
+            0,
+            self.data_len
+            # 12 * 30 * 24 + 4 * 30 * 24,
+            # 12 * 30 * 24 + 8 * 30 * 24,
         ]
         border1 = border1s[self.set_type]
         border2 = border2s[self.set_type]
@@ -143,6 +166,15 @@ class SNDLibDataset(SNDLibDatasetBase):
         cols_data.remove("date")
         if self.features == "M" or self.features == "MS":
             df_data = self.df_raw[cols_data]
+            train_data = df_data[border1s[0] : border2s[0]]
+            self.scaler.fit(train_data.values)
+            data = self.scaler.transform(df_data.values)
+
+            self.data_x = data[border1:border2]
+            self.data_y = data[border1:border2]
+            self.data_stamp = data_stamp
+
+            print(self.data_x.shape, self.data_y.shape, self.data_stamp.shape)
         elif self.features == "S":
             self.records = {}
             for col in cols_data:
@@ -160,16 +192,12 @@ class SNDLibDataset(SNDLibDatasetBase):
             self.record_index = 0
             self.record_keys = list(self.records.keys())
 
-        train_data = df_data[border1s[0] : border2s[0]]
-        self.scaler.fit(train_data.values)
-        data = self.scaler.transform(df_data.values)
-
-        if self.features == "M" or self.features == "MS":
-            self.data_x = data[border1:border2]
-            self.data_y = data[border1:border2]
-            self.data_stamp = data_stamp
-        elif self.features == "S":
-            pass
+        # if self.features == "M" or self.features == "MS":
+        #     self.data_x = data[border1:border2]
+        #     self.data_y = data[border1:border2]
+        #     self.data_stamp = data_stamp
+        # elif self.features == "S":
+        #     pass
 
         # self.cols_data = self.df_raw.columns[1:] if self.pair is None else [self.pair]
 
@@ -236,7 +264,6 @@ class SNDLibDataset(SNDLibDatasetBase):
 
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
-
     def __unit_len(self):
         if self.features == "M" or self.features == "MS":
             return len(self.data_x) - self.seq_len - self.pred_len + 1
@@ -249,10 +276,88 @@ class SNDLibDataset(SNDLibDatasetBase):
             return len(self.data_x) - self.seq_len - self.pred_len + 1
         elif self.features == "S":
             data_x = self.records[self.record_keys[0]]["data_x"]
-            return (len(data_x) - self.seq_len - self.pred_len + 1) * len(self.record_keys)
+            return (len(data_x) - self.seq_len - self.pred_len + 1) * len(
+                self.record_keys
+            )
 
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
+
+
+def forward_pass(model, batch):
+    batch_x, batch_y, batch_x_mark, batch_y_mark = batch
+
+    batch_x = batch_x.float().to(device)
+
+    batch_y = batch_y.float().to(device)
+    batch_x_mark = batch_x_mark.float().to(device)
+    batch_y_mark = batch_y_mark.float().to(device)
+
+    dec_inp = torch.zeros_like(batch_y[:, -model_args.pred_len :, :]).float()
+    dec_inp = (
+        torch.cat([batch_y[:, : model_args.label_len, :], dec_inp], dim=1)
+        .float()
+        .to(device)
+    )
+
+    outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+    f_dim = -1 if model_args.features == "MS" else 0
+    outputs = outputs[:, -model_args.pred_len :, f_dim:]
+    batch_y = batch_y[:, -model_args.pred_len :, f_dim:].to(device)
+
+    return outputs, batch_y
+
+
+def train_loop(train_loader, test_loader, model_args, tag: str):
+    model = Autoformer(model_args).float().to(device)
+    optim = Adam(model.parameters(), lr=model_args.learning_rate)
+    loss_func = nn.MSELoss()
+
+    for epoch in range(model_args.train_epochs):
+        model.train()
+        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(
+            train_loader
+        ):
+            if i == 0:
+                print(
+                    batch_x.size(),
+                    batch_x_mark.size(),
+                    batch_y.shape,
+                    batch_y_mark.size(),
+                )
+            optim.zero_grad()
+
+            outputs, batch_y = forward_pass(
+                model, (batch_x, batch_y, batch_x_mark, batch_y_mark)
+            )
+
+            loss = loss_func(outputs, batch_y)
+
+            loss.backward()
+            optim.step()
+
+    torch.save(
+        model.state_dict(), os.path.join(data_args.checkpoint, f"model_{tag}.pt")
+    )
+
+    model.eval()
+
+    test_set = []
+    forecast_list = []
+
+    with torch.no_grad():
+        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+            outputs, batch_y = forward_pass(
+                model, (batch_x, batch_y, batch_x_mark, batch_y_mark)
+            )
+
+            forecast_list.append(outputs)
+            test_set.append(batch_y)
+
+    test_set = torch.concat(test_set).detach().cpu().numpy()
+    forecast_list = torch.concat(forecast_list).detach().cpu().numpy()
+
+    return forecast_list, test_set
 
 
 train_data = SNDLibDataset(model_args, data_args, flag="train")
@@ -260,13 +365,44 @@ test_data = SNDLibDataset(model_args, data_args, flag="test")
 train_data.save_data("train")
 test_data.save_data("test")
 
+train_loader = DataLoader(train_data, batch_size=32)
+test_loader = DataLoader(test_data, batch_size=32)
+
+pred_real, test_set = train_loop(train_loader, test_loader, model_args, "real")
+pred_oracle, test_set = train_loop(test_loader, test_loader, model_args, "oracle")
+
+columns = list(train_data.df_raw.columns)
+columns.remove("date")
+
+print(len(train_data.df_raw.index.values))
+print(pred_real.shape)
+print(pred_oracle.shape)
+print(test_set.shape)
+
+with open(os.path.join(data_args.checkpoint, "columns.json"), "w") as fp:
+    json.dump(columns, fp)
+np.save(
+    os.path.join(data_args.checkpoint, "test.npy"),
+    test_set.reshape(-1, len(columns)),
+    allow_pickle=False,
+)
+np.save(
+    os.path.join(data_args.checkpoint, "pred_real.npy"), 
+    pred_real.reshape(-1, len(columns)), 
+    allow_pickle=False,
+)
+np.save(
+    os.path.join(data_args.checkpoint, "pred_oracle.npy"),
+    pred_oracle.reshape(-1, len(columns)),
+    allow_pickle=False,
+)
+
+exit()
+
 model = Autoformer(model_args).float().to(device)
 
 optim = Adam(model.parameters(), lr=model_args.learning_rate)
 loss_func = nn.MSELoss()
-
-train_loader = DataLoader(train_data, batch_size=32, drop_last=True)
-test_loader = DataLoader(test_data, batch_size=32, drop_last=True)
 
 train_steps = len(train_loader)
 
@@ -340,7 +476,6 @@ for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
     batch_x_mark = batch_x_mark.float().to(device)
     batch_y_mark = batch_y_mark.float().to(device)
 
-
     # decoder input
     dec_inp = torch.zeros_like(batch_y[:, -model_args.pred_len :, :]).float()
     dec_inp = (
@@ -367,5 +502,4 @@ np.save(
     allow_pickle=False,
 )
 torch.save(model.state_dict(), os.path.join(data_args.checkpoint, "model.pt"))
-
 

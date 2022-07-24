@@ -60,10 +60,10 @@ def plot_raw(data_oracle, data_real, ref, save_path: str, xlabel=None, ylabel=No
     sns.set(font_scale=5)
     sns.set_style("white")
     fig, ax = plt.subplots(figsize=(20, 15), dpi=300)
-    sns.lineplot(x=x, y=pred_oracle, label="oracle", color="black", linewidth=5)
-    sns.lineplot(x=x, y=pred_real, label="pred", color="blue", linewidth=5)
+    sns.lineplot(x=x, y=pred_oracle, label="oracle", color="black", linewidth=4)
+    sns.lineplot(x=x, y=pred_real, label="pred", color="blue", linewidth=4)
     sns.lineplot(
-        x=x, y=ref, label="ref", color="red", linewidth=5, linestyle="--", alpha=0.4
+        x=x, y=ref, label="ref", color="red", linewidth=4, linestyle="--", alpha=0.4
     )
     if conf is not None:
         ax.fill_between(x, conf[:, 0], conf[:, 1], color="blue", alpha=0.5)
