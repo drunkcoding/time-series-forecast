@@ -5,9 +5,11 @@ from pyexpat import features
 
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from pmdarima.arima import auto_arima
+
+from pmdarima.arima import auto_arima, ARIMA
 import pandas as pd
 from tqdm import tqdm, trange
+# from cuml.tsa.arima import ARIMA
 
 from forecast.data.loader import DataParser
 
@@ -50,14 +52,32 @@ class ModelConfig:
         assert self.features == "MS" or self.features == "S"
 
 
+def parameter_gen(max_p, max_d, max_q, max_P, max_D, max_Q, max_s):
+    for p in range(max_p):
+        for d in range(max_d):
+            for q in range(max_q):
+                for P in range(max_P):
+                    for D in range(max_D):
+                        for Q in range(max_Q):
+                            for s in range(max_s):
+                                yield (p, d, q), (P, D, Q, s)
+
+# for i in tqdm(parameter_gen(5,5,5,2,2,2,2)):
+#     pass
+
+# exit()
+
 def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
     sc = MinMaxScaler(feature_range=(0, 1))
     if len(data.shape) == 1:
         data = data.reshape(-1, 1)
     data_scaled = sc.fit_transform(data)
 
-    model = auto_arima(data_scaled, X=train_X)
+    # model = auto_arima(data_scaled, X=train_X)
+    model = ARIMA((1,1,2), maxiter=500)
+    model.fit(data_scaled, train_X)
     # print(model.summary())
+    # print(model.params())
     f_p, c_p = model.predict(predict_len, X=test_X, return_conf_int=True)
     f_pi, c_pi = model.predict_in_sample(X=train_X, return_conf_int=True)
 
@@ -93,6 +113,7 @@ def prepare_model(i, train_data, test_data, features: str):
         result_oracle[2].tolist(),
         result_oracle[3].tolist(),
     )
+
 
 if __name__ == "__main__":
     pool = mp.Pool(mp.cpu_count() - 1)
@@ -148,7 +169,7 @@ if __name__ == "__main__":
     conf_real = np.array(conf_real)
     conf_oracle = np.array(conf_oracle)
 
-    with open(os.path.join(args.checkpoint, "columns.json"), 'w') as fp:
+    with open(os.path.join(args.checkpoint, "columns.json"), "w") as fp:
         json.dump(columns, fp)
     np.save(
         os.path.join(args.checkpoint, "pred_real.npy"),
@@ -162,9 +183,7 @@ if __name__ == "__main__":
     )
 
     np.save(
-        os.path.join(args.checkpoint, "conf_real.npy"),
-        conf_real,
-        allow_pickle=False,
+        os.path.join(args.checkpoint, "conf_real.npy"), conf_real, allow_pickle=False,
     )
     np.save(
         os.path.join(args.checkpoint, "conf_oracle.npy"),
