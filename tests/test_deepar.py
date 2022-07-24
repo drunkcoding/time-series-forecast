@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import json
 import os
 
 import numpy as np
@@ -31,6 +32,18 @@ num_covariates = 5
 class ModelConfig:
     folder: str = field(metadata={"help": "folder for xml data"})
     checkpoint: str = field(metadata={"help": "path to checkpoints"})
+    fill: str = field(
+        metadata={
+            "help": "fill with values ['zero': fill with zeros, 'ffill': forward fill, 'backfill': backward fill]"
+        }
+    )
+    # features: str = field(
+    #     default="M",
+    #     metadata={
+    #         "help": "forecasting task, options:[M, S, MS]; M:multivariate predict multivariate, S:univariate predict univariate, MS:multivariate predict univariate"
+    #     },
+    # )
+    debug: bool = field(default=False)
 
     def __post_init__(self):
         try:
@@ -40,9 +53,13 @@ class ModelConfig:
 
         if "abilene" in self.checkpoint:
             self.save_name = "abilene"
+            self.save_name_oracle = "abilene"
         else:
             self.save_name = "geant"
+            self.save_name_oracle = "geant"
 
+parser = HfArgumentParser(ModelConfig)
+args = parser.parse_args_into_dataclasses()[0]
 
 @dataclass
 class ModelParameters(object):
@@ -61,7 +78,7 @@ class ModelParameters(object):
     test_predict_start: int = field(default=168)
     predict_steps: int = field(default=24)
     predict_start: int = field(default=168)
-    
+
     device: str = field(default="cuda")
 
 
@@ -85,23 +102,23 @@ class ModelParameters(object):
 # }
 
 
-class SimpleDataset(Dataset):
-    def __init__(self, x_input, v_input, label) -> None:
-        super().__init__()
+# class SimpleDataset(Dataset):
+#     def __init__(self, x_input, v_input, label) -> None:
+#         super().__init__()
 
-        self.x_input = x_input
-        self.v_input = v_input
-        self.label = label
+#         self.x_input = x_input
+#         self.v_input = v_input
+#         self.label = label
 
-    def __getitem__(self, index):
-        return (
-            self.x_input[index],
-            self.v_input[index],
-            self.label[index],
-        )
+#     def __getitem__(self, index):
+#         return (
+#             self.x_input[index],
+#             self.v_input[index],
+#             self.label[index],
+#         )
 
-    def __len__(self):
-        return len(self.x_input)
+#     def __len__(self):
+#         return len(self.x_input)
 
 
 def gen_covariates(times):
@@ -175,6 +192,48 @@ def prepare_data(data, times, save_path, save_name, train):
     return x_input, v_input, label
 
 
+def train_loop(train_loader, test_loader, params, tag:str):
+    model = DeepAR(params)
+    optimizer = optim.Adam(model.parameters(), lr=params.learning_rate)
+    model.train()
+    model = model.to(params.device)
+    # loss_epoch = np.zeros(len(training_set))
+    for epoch in range(params.num_epochs):
+        for i, (train_batch, idx, labels_batch) in enumerate(tqdm(train_loader)):
+            optimizer.zero_grad()
+            batch_size = train_batch.shape[0]
+
+            train_batch = (
+                train_batch.permute(1, 0, 2).to(torch.float32).to(params.device)
+            )  # not scaled
+            labels_batch = (
+                labels_batch.permute(1, 0).to(torch.float32).to(params.device)
+            )  # not scaled
+            idx = idx.unsqueeze(0).to(params.device)
+
+            loss = torch.zeros(1, device=params.device)
+            hidden = model.init_hidden(batch_size)
+            cell = model.init_cell(batch_size)
+
+            for t in range(params.train_window):
+                # if z_t is missing, replace it by output mu from the last time step
+                zero_index = train_batch[t, :, 0] == 0
+                if t > 0 and torch.sum(zero_index) > 0:
+                    train_batch[t, zero_index, 0] = mu[zero_index]
+                mu, sigma, hidden, cell = model(
+                    train_batch[t].unsqueeze_(0).clone(), idx, hidden, cell
+                )
+                loss += loss_fn(mu, sigma, labels_batch[t])
+
+            loss.backward()
+            optimizer.step()
+            loss = loss.item() / params.train_window  # loss per timestep
+        # loss_epoch[i] = loss
+    torch.save(model.state_dict(), os.path.join(args.checkpoint, f"model_{tag}.pt"))
+    evaluate(model, loss_fn, test_loader, params, None)
+    # if i == 0:
+    #     print(f'train_loss: {loss}')
+
 
 @torch.no_grad()
 def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
@@ -201,8 +260,7 @@ def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
     # labels ([batch_size, train_window]): z_{1:T}.
 
     forecast_list = []
-    lb_list = []
-    ub_list = []
+    conf_list = []
 
     for i, (test_batch, id_batch, v, labels) in enumerate(tqdm(test_loader)):
         test_batch = test_batch.permute(1, 0, 2).to(torch.float32).to(params.device)
@@ -240,14 +298,20 @@ def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
 
         # print(sample_mu.shape, sample_sigma.shape, type(sample_mu))
 
-        forecast_list.append(sample_mu.detach().cpu().numpy().tolist())
-        lb_list.append((sample_mu - 1.96 * sample_sigma).detach().cpu().numpy().tolist())
-        ub_list.append((sample_mu + 1.96 * sample_sigma).detach().cpu().numpy().tolist())
+        forecast_list.append(sample_mu.detach().cpu())
+        conf_list.append(
+            torch.hstack([sample_mu - 1.96 * sample_sigma,sample_mu + 1.96 * sample_sigma]).detach().cpu()
+        )
+
+    forecast_list = torch.concat(forecast_list).numpy()
+    conf_list = torch.concat(conf_list).numpy()
+
+    return forecast_list, conf_list
 
     np.save(os.path.join(args.checkpoint, "test.npy"), test_set, allow_pickle=False)
     np.save(
         os.path.join(args.checkpoint, "pred.npy"),
-        np.array(forecast_list),
+        forecast_list,
         allow_pickle=False,
     )
 
@@ -264,12 +328,13 @@ def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
 
     model.train()
 
-parser = HfArgumentParser(ModelConfig)
-args = parser.parse_args_into_dataclasses()[0]
+
+
 
 parser = DataParser()
 df = parser.parse_sndlib_xml(args.folder)
-df = df.fillna(0).set_index("timestamps")
+df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
+df = df.set_index("timestamps")
 
 print(df.head())
 
@@ -290,33 +355,69 @@ prepare_data(
     training_set, df.index[:train_len], args.folder, args.save_name, train=True
 )
 prepare_data(
-    test_set, df.index[train_len:], args.folder, args.save_name, train=False
+    test_set, df.index[train_len:], args.folder, args.save_name_oracle, train=True
+)
+prepare_data(test_set, df.index[train_len:], args.folder, args.save_name, train=False)
+
+params = ModelParameters(num_class=dataset.shape[1])
+
+train_dataset = TrainDataset(args.folder, args.save_name, params.num_class)
+oracle_dataset = TrainDataset(args.folder, args.save_name_oracle, params.num_class)
+test_dataset = TestDataset(args.folder, args.save_name, params.num_class)
+sampler = WeightedSampler(
+    args.folder, args.save_name
+)  # Use weighted sampler instead of random sampler
+train_loader = DataLoader(
+    train_dataset, batch_size=params.batch_size, sampler=sampler
+)
+oracle_loader = DataLoader(
+    oracle_dataset, batch_size=params.batch_size, sampler=sampler
+)
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=params.batch_size,
+    sampler=RandomSampler(test_dataset),
 )
 
+forecast_real, conf_real = train_loop(train_loader, test_loader, params, "real")
+forecast_oracle, conf_oracle = train_loop(oracle_loader, test_loader, params, "oracle")
+
+columns = list(df.columns)
+
+with open(os.path.join(args.checkpoint, "columns.json"), "w") as fp:
+    json.dump(columns, fp)
+np.save(
+    os.path.join(args.checkpoint, "pred_real.npy"),
+    forecast_real,
+    allow_pickle=False,
+)
+np.save(
+    os.path.join(args.checkpoint, "pred_oracle.npy"),
+    forecast_oracle,
+    allow_pickle=False,
+)
+
+np.save(
+    os.path.join(args.checkpoint, "conf_real.npy"), conf_real, allow_pickle=False,
+)
+np.save(
+    os.path.join(args.checkpoint, "conf_oracle.npy"),
+    conf_oracle,
+    allow_pickle=False,
+)
+
+exit()
 
 # print(train_x_input.shape, train_v_input.shape, train_label.shape)
 
-params = ModelParameters(num_class=dataset.shape[1])
+
 model = DeepAR(params)
 optimizer = optim.Adam(model.parameters(), lr=params.learning_rate)
 model.train()
 model = model.to(params.device)
 loss_epoch = np.zeros(len(training_set))
 
-train_dataset = TrainDataset(args.folder, args.save_name, params.num_class)
-test_dataset = TestDataset(args.folder, args.save_name, params.num_class)
-sampler = WeightedSampler(
-    args.folder, args.save_name
-)  # Use weighted sampler instead of random sampler
-train_loader = DataLoader(
-    train_dataset, batch_size=params.batch_size, sampler=sampler, num_workers=4
-)
-test_loader = DataLoader(
-    test_dataset,
-    batch_size=params.batch_size,
-    sampler=RandomSampler(test_dataset),
-    num_workers=4,
-)
+
 # logger.info('Loading complete.')
 
 # train_dataset = SimpleDataset(train_x_input, train_v_input, train_label)
@@ -359,7 +460,4 @@ for i, (train_batch, idx, labels_batch) in enumerate(tqdm(train_loader)):
         print(f"train_loss: {loss}")
     # if i == 0:
     #     print(f'train_loss: {loss}')
-
-
-
 

@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 import json
 import os
-from pyexpat import features
 
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
@@ -74,8 +73,11 @@ def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
     data_scaled = sc.fit_transform(data)
 
     # model = auto_arima(data_scaled, X=train_X)
-    model = ARIMA((1,1,2), maxiter=500)
+    model = ARIMA((1,1,2), max_iter=500)
     model.fit(data_scaled, train_X)
+    # model = ARIMA(data_scaled, order=(1,1,2), exog=train_X)
+    # model.forecast(predict_len, level=0.95, exog=test_X)
+    # model.predict(level=0.95, exog=train_X)
     # print(model.summary())
     # print(model.params())
     f_p, c_p = model.predict(predict_len, X=test_X, return_conf_int=True)
@@ -90,7 +92,7 @@ def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
 
 
 def prepare_model(i, train_data, test_data, features: str):
-    os.sched_setaffinity(0, {i % (mp.cpu_count() - 1)})
+    os.sched_setaffinity(0, {i % (mp.cpu_count() // 4)})
 
     train_X = (
         None
@@ -116,7 +118,7 @@ def prepare_model(i, train_data, test_data, features: str):
 
 
 if __name__ == "__main__":
-    pool = mp.Pool(mp.cpu_count() - 1)
+    pool = mp.Pool(mp.cpu_count() // 4)
 
     parser = HfArgumentParser(ModelConfig)
     args = parser.parse_args_into_dataclasses()[0]
