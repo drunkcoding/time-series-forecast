@@ -98,12 +98,11 @@ class SNDLibDatasetBase(Dataset):
                 id, source, target, value = group
                 records[id][-1] = float(value)
 
-        self.df_raw = pd.DataFrame(records)
-        self.df_raw = (
-            self.df_raw.fillna(0)
-            if self.fill == "zero"
-            else self.df_raw.fillna(method=self.fill)
-        )
+        df = pd.DataFrame(records)
+        df = df.fillna(0) if self.fill == "zero" else df.fillna(method=self.fill)
+        if df.isnull().values.any():
+            df = df.fillna(0)
+        self.df_raw = df
         # node_pairs = df.columns
         self.df_raw["date"] = timestamps
 

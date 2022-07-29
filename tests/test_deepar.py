@@ -297,8 +297,10 @@ def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
             test_batch, v_batch, id_batch, hidden, cell, sampling=False
         )
 
-        sample_mu = sample_mu.flatten()
-        sample_sigma = sample_sigma.flatten()
+        # print(sample_mu.shape, sample_sigma.shape, test_batch.shape)
+
+        # sample_mu = sample_mu.flatten()
+        # sample_sigma = sample_sigma.flatten()
 
         # print(sample_mu.shape, sample_sigma.shape, type(sample_mu))
 
@@ -338,8 +340,11 @@ def evaluate(model, loss_fn, test_loader, params, plot_num, sample=True):
 parser = DataParser()
 df = parser.parse_sndlib_xml(args.folder)
 df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
+if df.isnull().values.any():
+    df = df.fillna(0)
+
 if args.debug:
-    df = df.loc[:1000]
+    df = df.loc[:2000]
 
 
 df_time = pd.to_datetime(df["timestamps"])
@@ -357,6 +362,14 @@ train_len = int(df_len * 0.6)
 dataset = df.values
 training_set = dataset[:train_len]
 test_set = dataset[train_len:]
+
+columns = list(df.columns)
+
+np.save(
+    os.path.join(args.checkpoint, "test.npy"),
+    test_set.reshape(-1, len(columns)),
+    allow_pickle=False,
+)
 
 print(training_set.shape, test_set.shape)
 

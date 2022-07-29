@@ -113,8 +113,10 @@ args = parser.parse_args_into_dataclasses()[0]
 
 parser = DataParser()
 df = parser.parse_sndlib_xml(args.folder)
-df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
 df = df.drop(columns=["timestamps"])
+df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
+if df.isnull().values.any():
+    df = df.fillna(0)
 
 columns = list(df.columns)
 

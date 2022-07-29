@@ -96,6 +96,8 @@ if __name__ == "__main__":
     parser = DataParser()
     df = parser.parse_sndlib_xml(args.folder)
     df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
+    if df.isnull().values.any():
+        df = df.fillna(0)
 
     print(df.head())
 
