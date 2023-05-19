@@ -2,6 +2,12 @@
 *.zip
 directed*/
 *_ckpts/
+tmp*
+outputs/
+data
+lightning_logs/
+*.png
+checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -10,7 +16,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+When
 # Distribution / packaging
 .Python
 build/

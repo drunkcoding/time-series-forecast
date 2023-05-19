@@ -9,6 +9,7 @@ import keras
 from keras.models import Sequential
 from keras.layers import Dense, LSTM, Dropout, GRU, Bidirectional
 from keras.optimizers import SGD
+from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
 import math
 from sklearn.metrics import mean_squared_error
@@ -92,7 +93,10 @@ def train_loop(X_train, y_train, X_test, sc):
 
     # Compiling the RNN
     regressor.compile(optimizer="rmsprop", loss="mean_squared_error")
+    
+    
     # Fitting to the training set
+    # Use cross validation for the training set
 
     regressor.fit(
         X_train,

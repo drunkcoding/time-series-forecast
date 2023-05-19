@@ -19,7 +19,7 @@ patch_sklearn()
 from forecast.data.loader import DataParser
 from forecast.data.prophet import ProphetDataParser
 from forecast.utils.cmdparser import HfArgumentParser
-
+from forecast.data.imputer import impute, train_test_split
 
 import multiprocessing as mp
 from functools import partial
@@ -32,6 +32,12 @@ class ModelConfig:
     fill: str = field(
         metadata={
             "help": "fill with values ['zero': fill with zeros, 'ffill': forward fill, 'backfill': backward fill]"
+        }
+    )
+    strategy: str = field(
+        default="mean",
+        metadata={
+            "help": "fill with values [mean, median, most_frequent]"
         }
     )
     features: str = field(
@@ -61,10 +67,6 @@ def parameter_gen(max_p, max_d, max_q, max_P, max_D, max_Q, max_s):
                             for s in range(max_s):
                                 yield (p, d, q), (P, D, Q, s)
 
-# for i in tqdm(parameter_gen(5,5,5,2,2,2,2)):
-#     pass
-
-# exit()
 
 def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
     sc = MinMaxScaler(feature_range=(0, 1))
@@ -73,7 +75,7 @@ def fit_predict_model(data, predict_len: int, train_X=None, test_X=None):
     data_scaled = sc.fit_transform(data)
 
     # model = auto_arima(data_scaled, X=train_X)
-    model = ARIMA((1,1,2), max_iter=500)
+    model = ARIMA((1,1,2), max_iter=100)
     model.fit(data_scaled, train_X)
     # model = ARIMA(data_scaled, order=(1,1,2), exog=train_X)
     # model.forecast(predict_len, level=0.95, exog=test_X)
@@ -118,31 +120,21 @@ def prepare_model(i, train_data, test_data, features: str):
 
 
 if __name__ == "__main__":
-    pool = mp.Pool(mp.cpu_count() // 4)
+    pool = mp.Pool(8) 
 
     parser = HfArgumentParser(ModelConfig)
     args = parser.parse_args_into_dataclasses()[0]
 
     parser = DataParser()
     df = parser.parse_sndlib_xml(args.folder)
-    df = df.fillna(0) if args.fill == "zero" else df.fillna(method=args.fill)
+    columns, train_set, test_set, train_time, test_time, train_indocator, test_indicator = train_test_split(df, args)
+    dataset = np.concatenate((train_set, test_set), axis=0)
 
-    if args.debug:
-        df = df.loc[:100]
-
-    df_len = len(df.index.values)
-    train_len = int(df_len * 0.6)
-
-    dataset = df.drop(columns=["timestamps"]).values
-    train_set = dataset[:train_len]
-    test_set = dataset[train_len:]
+    
+    with open(os.path.join(args.checkpoint, "columns.json"), "w") as fp:
+        json.dump(columns, fp)
     np.save(os.path.join(args.checkpoint, "test.npy"), test_set, allow_pickle=False)
-
-    columns = list(df.columns)
-    columns.remove("timestamps")
-
-    if args.debug:
-        columns = columns[:2]
+    np.save(os.path.join(args.checkpoint, "test_indicator.npy"), test_indicator, allow_pickle=False)
 
     results = pool.map(
         partial(
@@ -171,8 +163,6 @@ if __name__ == "__main__":
     conf_real = np.array(conf_real)
     conf_oracle = np.array(conf_oracle)
 
-    with open(os.path.join(args.checkpoint, "columns.json"), "w") as fp:
-        json.dump(columns, fp)
     np.save(
         os.path.join(args.checkpoint, "pred_real.npy"),
         forecast_real,

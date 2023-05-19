@@ -19,7 +19,7 @@ from forecast.utils.cmdparser import HfArgumentParser, ModelArguments, DataArgum
 
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from forecast.utils.timefeatures import time_features
 
@@ -312,7 +312,7 @@ def train_loop(train_loader, test_loader, model_args, tag: str):
     optim = Adam(model.parameters(), lr=model_args.learning_rate)
     loss_func = nn.MSELoss()
 
-    for epoch in range(model_args.train_epochs):
+    for epoch in trange(model_args.train_epochs):
         model.train()
         for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(
             train_loader
@@ -334,6 +334,8 @@ def train_loop(train_loader, test_loader, model_args, tag: str):
 
             loss.backward()
             optim.step()
+
+        print("Epoch: ", epoch, "train_loss: ", loss.item())
 
     torch.save(
         model.state_dict(), os.path.join(data_args.checkpoint, f"model_{tag}.pt")
